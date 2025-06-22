@@ -1,0 +1,95 @@
+:root {
+    --bg-color: #121212;
+    --primary-color: #1e1e1e;
+    --secondary-color: #2a2a2a;
+    --font-color: #e0e0e0;
+    --accent-color: #007bff;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--font-color);
+    margin: 0;
+    padding: 2rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+h1 {
+    color: var(--accent-color);
+}
+
+#search-form {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 600px;
+    margin: 0 auto 2rem auto;
+}
+
+#search-input {
+    flex-grow: 1;
+    padding: 0.75rem;
+    font-size: 1rem;
+    border: 1px solid var(--secondary-color);
+    background-color: var(--primary-color);
+    color: var(--font-color);
+    border-radius: 5px;
+}
+
+#search-form button {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    border: none;
+    background-color: var(--accent-color);
+    color: #fff;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.2s;
+}
+
+#search-form button:hover {
+    background-color: #0056b3;
+}
+
+#results-container {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.result-item {
+    background-color: var(--primary-color);
+    padding: 1.5rem;
+    border-radius: 5px;
+    margin-bottom: 1rem;
+    border-left: 4px solid var(--accent-color);
+}
+
+.result-item h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+.result-item a {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--font-color);
+    text-decoration: none;
+    background-color: var(--secondary-color);
+    padding: 0.75rem;
+    border-radius: 5px;
+    transition: background-color 0.2s;
+    word-wrap: break-word;
+}
+
+.result-item a:hover {
+    background-color: #3c3c3c;
+}
+
+.no-results {
+    text-align: center;
+    color: #888;
+}
