@@ -1,3 +1,5 @@
+// File: script.js (Final Version)
+
 document.addEventListener('DOMContentLoaded', () => {
     const searchForm = document.getElementById('search-form');
     const searchInput = document.getElementById('search-input');
@@ -11,26 +13,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    function findResults(query) {
-        // --- DUMMY DATA FOR TESTING ---
-        // In the future, this will be replaced with a real API call to our backend.
-        const mockDatabase = {
-            "the dark knight": {
-                title: "The Dark Knight",
-                links: [
-                    "https://vidsrc.to/embed/movie/tt0468569",
-                    "https://archive.org/download/TheDarkKnight_201408/TheDarkKnight.mp4"
-                ]
+    async function findResults(query) {
+        // Clear previous results and show a loading message
+        resultsContainer.innerHTML = `<p class="no-results">Searching...</p>`;
+
+        try {
+            // --- THIS IS THE NEW PART ---
+            // We now call our live Netlify Function API
+            const response = await fetch(`/.netlify/functions/search?q=${query}`);
+
+            // If the API returns a "not found" error, show that message
+            if (response.status === 404) {
+                displayResults(null); // Passing null will trigger the "No results found" message
+                return;
             }
-        };
-        
-        const result = mockDatabase[query.toLowerCase()];
-        displayResults(result);
-        // --- END OF DUMMY DATA SECTION ---
+
+            // If the response is not ok for any other reason, throw an error
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            displayResults(result);
+            // --- END OF NEW PART ---
+
+        } catch (error) {
+            console.error('Search failed:', error);
+            resultsContainer.innerHTML = `<p class="no-results">An error occurred. Please try again.</p>`;
+        }
     }
 
     function displayResults(result) {
-        // Clear previous results
+        // Clear the "Searching..." message
         resultsContainer.innerHTML = '';
 
         if (!result) {
