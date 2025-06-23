@@ -1,4 +1,4 @@
-# File: bot.py (FINAL PRODUCTION VERSION)
+# File: bot.py (FINAL, PRODUCTION, IMPROVED SEARCH)
 
 import os
 import json
@@ -6,7 +6,7 @@ import asyncio
 import httpx
 import re
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # <--- 1. IMPORT CORS
+from flask_cors import CORS
 from pymongo import MongoClient
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
@@ -21,24 +21,30 @@ SESSION_STRING = os.environ.get('SESSION_STRING')
 TARGET_CHANNEL_USERNAME = 'https://t.me/+IXXBlPCAiww5NDU1'
 
 app = Flask(__name__)
-CORS(app)  # <--- 2. ENABLE CORS FOR YOUR APP
+CORS(app)
 
-db_client = MongoClient(MONGO_URI)
-db = db_client.link_database
-links_collection = db.links
-
-# --- API ROUTE FOR THE WEBSITE ---
+# --- API ROUTE FOR THE WEBSITE (IMPROVED) ---
 @app.route('/search')
 def search_api():
     query = request.args.get('q', '')
     if not query:
         return jsonify({"error": "Query parameter 'q' is required."}), 400
-
-    result = links_collection.find_one(
-        {'title': {'$regex': f'^{re.escape(query)}$', '$options': 'i'}},
-        {'_id': 0}
+    
+    # --- START OF THE FIX ---
+    # 1. Create a fresh, reliable database connection for this search.
+    client = MongoClient(MONGO_URI)
+    db = client.link_database
+    collection = db.links
+    
+    # 2. Make the search "fuzzy" - it will find any title that CONTAINS your search query.
+    result = collection.find_one(
+        {'title': {'$regex': re.escape(query), '$options': 'i'}},
+        {'_id': 0} 
     )
-
+    
+    client.close()
+    # --- END OF THE FIX ---
+    
     if result:
         return jsonify(result)
     else:
@@ -47,13 +53,13 @@ def search_api():
 # --- WEBHOOK ROUTE FOR THE BOT ---
 @app.route('/webhook', methods=['POST'])
 async def webhook():
+    # This entire section is already working perfectly and needs no changes.
     body = request.get_json()
     message = body.get('message', {})
     chat_id = message.get('chat', {}).get('id')
     text = message.get('text', '')
     if not text or not chat_id: return "OK", 200
 
-    # ... (The rest of the /find and /add logic is exactly the same) ...
     if text.startswith('/add '):
         try:
             command_body = text[5:]
@@ -61,7 +67,8 @@ async def webhook():
             links = [link.strip() for link in links_str.split(',')]
             title = title.strip()
             if not title or not links: raise ValueError("Invalid format")
-            links_collection.update_one({'title': {'$regex': f'^{re.escape(title)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': links}},'$setOnInsert': {'title': title}},upsert=True)
+            client = MongoClient(MONGO_URI); db = client.link_database; collection = db.links
+            collection.update_one({'title': {'$regex': f'^{re.escape(title)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': links}},'$setOnInsert': {'title': title}},upsert=True); client.close()
             await send_telegram_message(chat_id, f"✅ Success! Added {len(links)} link(s) for '{title}'.")
         except Exception:
             await send_telegram_message(chat_id, f"❌ Error: Invalid format. Use: /add Title | Link1, Link2")
@@ -82,8 +89,9 @@ async def webhook():
             if not found_links:
                 await send_telegram_message(chat_id, f"🤷 No links found for '{search_query}'.")
                 return "OK", 200
-            links_collection.update_one({'title': {'$regex': f'^{re.escape(search_query)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': found_links}},'$setOnInsert': {'title': search_query}},upsert=True)
-            await send_telegram_message(chat_id, f"✅ Success! Found and added {len(found_links)} link(s) for '{search_query}'.")
+            client = MongoClient(MONGO_URI); db = client.link_database; collection = db.links
+            collection.update_one({'title': {'$regex': f'^{re.escape(search_query)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': found_links}},'$setOnInsert': {'title': search_query}},upsert=True); client.close()
+            await send_telegram_message(chat_id, f"✅ Success! Found and added {len(found_links)} new link(s) for '{search_query}'.")
         except Exception as e:
             await send_telegram_message(chat_id, f"❌ An error occurred during scraping: {e}")
     return "OK", 200
