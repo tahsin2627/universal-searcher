@@ -1,8 +1,9 @@
-# File: netlify/functions/bot.py
+# File: netlify/functions/bot.py (Corrected Version)
 
 import os
 import json
 import asyncio
+import httpx # We import the new library
 from pymongo import MongoClient
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
@@ -14,7 +15,6 @@ API_ID = int(os.environ.get('API_ID'))
 API_HASH = os.environ.get('API_HASH')
 SESSION_STRING = os.environ.get('SESSION_STRING')
 
-# The ID of the channel you want to scrape
 TARGET_CHANNEL_USERNAME = 'https://t.me/+IXXBlPCAiww5NDU1'
 
 # --- DATABASE HELPER ---
@@ -32,14 +32,13 @@ def update_database(title, links):
     )
     client.close()
 
-# --- TELEGRAM HELPER ---
+# --- TELEGRAM HELPER (NOW SENDS REAL MESSAGES) ---
 async def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
-    # This part needs an HTTP library in a real scenario, 
-    # but for simplicity we are just printing.
-    # In a real deployed function, you'd use 'requests' or 'httpx'.
-    print(f"Would send to {chat_id}: {text}")
+    # Use httpx to send the message asynchronously
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload)
 
 
 # --- MAIN HANDLER ---
@@ -77,15 +76,10 @@ async def main_logic(event):
             await send_telegram_message(chat_id, f"🔎 Searching for '{search_query}'... This may take a moment.")
             
             found_links = []
-            # Connect Telethon client
             async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH) as client:
-                # Get the channel entity
                 channel = await client.get_entity(TARGET_CHANNEL_USERNAME)
-                # Search messages in the channel
                 async for msg in client.iter_messages(channel, search=search_query, limit=5):
                     if msg.text:
-                        # This is a simple link parser, you might need to make it more robust
-                        # It finds all http/https links in the message text
                         import re
                         urls = re.findall(r'https?://[^\s]+', msg.text)
                         if urls:
@@ -95,16 +89,13 @@ async def main_logic(event):
                 await send_telegram_message(chat_id, f"🤷 No links found for '{search_query}' in the source channel.")
                 return
 
-            # Add links to the database
             update_database(search_query, found_links)
             await send_telegram_message(chat_id, f"✅ Success! Found and added {len(found_links)} new link(s) for '{search_query}'.")
 
         except Exception as e:
             await send_telegram_message(chat_id, f"❌ An error occurred during scraping: {e}")
 
-
 def handler(event, context):
-    # The main entry point for Netlify
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main_logic(event))
     return {'statusCode': 200, 'body': 'OK'}
