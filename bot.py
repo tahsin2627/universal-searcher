@@ -1,4 +1,4 @@
-# File: bot.py (HYPER-DEBUG VERSION)
+# File: bot.py (FINAL PRODUCTION VERSION)
 
 import os
 import json
@@ -6,111 +6,94 @@ import asyncio
 import httpx
 import re
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # <--- 1. IMPORT CORS
 from pymongo import MongoClient
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
-import traceback # Import traceback to get detailed errors
 
 # --- CONFIGURATION ---
 MONGO_URI = os.environ.get('MONGO_URI')
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-# Add default=0 to prevent error if variable is missing, we'll check later
-API_ID = int(os.environ.get('API_ID', 0)) 
+API_ID = int(os.environ.get('API_ID'))
 API_HASH = os.environ.get('API_HASH')
 SESSION_STRING = os.environ.get('SESSION_STRING')
 
 TARGET_CHANNEL_USERNAME = 'https://t.me/+IXXBlPCAiww5NDU1'
 
 app = Flask(__name__)
+CORS(app)  # <--- 2. ENABLE CORS FOR YOUR APP
 
-# --- TELEGRAM HELPER ---
-# This function will now be our eyes and ears
-async def send_telegram_message(chat_id, text):
-    # Truncate long messages for safety
-    if len(text) > 4000:
-        text = text[:4000] + "... (truncated)"
-        
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": str(chat_id), "text": str(text)}
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(url, json=payload)
-    except Exception as e:
-        # If this fails, we log it to Render, as we can't send a message about it
-        print(f"CRITICAL: FAILED TO SEND TELEGRAM MESSAGE: {e}")
+db_client = MongoClient(MONGO_URI)
+db = db_client.link_database
+links_collection = db.links
 
+# --- API ROUTE FOR THE WEBSITE ---
+@app.route('/search')
+def search_api():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({"error": "Query parameter 'q' is required."}), 400
+
+    result = links_collection.find_one(
+        {'title': {'$regex': f'^{re.escape(query)}$', '$options': 'i'}},
+        {'_id': 0}
+    )
+
+    if result:
+        return jsonify(result)
+    else:
+        return jsonify({"message": "No results found."}), 404
 
 # --- WEBHOOK ROUTE FOR THE BOT ---
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    chat_id = None
-    try:
-        body = request.get_json()
-        message = body.get('message', {})
-        chat_id = message.get('chat', {}).get('id')
-        text = message.get('text', '')
+    body = request.get_json()
+    message = body.get('message', {})
+    chat_id = message.get('chat', {}).get('id')
+    text = message.get('text', '')
+    if not text or not chat_id: return "OK", 200
 
-        if not text or not chat_id:
-            return "OK", 200
-
-        if text.startswith('/find '):
-            await send_telegram_message(chat_id, "DEBUG: `/find` command received. Starting process...")
-            
+    # ... (The rest of the /find and /add logic is exactly the same) ...
+    if text.startswith('/add '):
+        try:
+            command_body = text[5:]
+            title, links_str = command_body.split('|')
+            links = [link.strip() for link in links_str.split(',')]
+            title = title.strip()
+            if not title or not links: raise ValueError("Invalid format")
+            links_collection.update_one({'title': {'$regex': f'^{re.escape(title)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': links}},'$setOnInsert': {'title': title}},upsert=True)
+            await send_telegram_message(chat_id, f"✅ Success! Added {len(links)} link(s) for '{title}'.")
+        except Exception:
+            await send_telegram_message(chat_id, f"❌ Error: Invalid format. Use: /add Title | Link1, Link2")
+    elif text.startswith('/find '):
+        try:
             search_query = text[6:].strip()
             if not search_query:
-                await send_telegram_message(chat_id, "DEBUG: No search query provided. Exiting.")
+                await send_telegram_message(chat_id, "Please provide a title to find.")
                 return "OK", 200
-
-            # Check for missing credentials BEFORE trying to use them
-            if not all([API_ID, API_HASH, SESSION_STRING, MONGO_URI]):
-                 await send_telegram_message(chat_id, "❌ FATAL ERROR: One or more environment variables (API_ID, API_HASH, SESSION_STRING, MONGO_URI) are missing in the Render settings.")
-                 return "OK", 200
-
-            await send_telegram_message(chat_id, "DEBUG: Step 1: Initializing Telethon Client...")
-            
+            await send_telegram_message(chat_id, f"🔎 Searching for '{search_query}'...")
+            found_links = []
             async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH) as client:
-                await send_telegram_message(chat_id, "DEBUG: Step 2: Telethon Client connected successfully.")
-
-                await send_telegram_message(chat_id, f"DEBUG: Step 3: Getting channel entity for '{TARGET_CHANNEL_USERNAME}'...")
                 channel = await client.get_entity(TARGET_CHANNEL_USERNAME)
-                await send_telegram_message(chat_id, "DEBUG: Step 4: Channel entity found. Searching messages...")
-
-                found_links = []
                 async for msg in client.iter_messages(channel, search=search_query, limit=5):
                     if msg.text:
                         urls = re.findall(r'https?://[^\s]+', msg.text)
-                        if urls:
-                            found_links.extend(urls)
-                
-                await send_telegram_message(chat_id, f"DEBUG: Step 5: Search complete. Found {len(found_links)} links.")
-
-                if not found_links:
-                    await send_telegram_message(chat_id, f"🤷 No links found for '{search_query}' in the source channel.")
-                    return "OK", 200
-
-                await send_telegram_message(chat_id, "DEBUG: Step 6: Connecting to database...")
-                db_client = MongoClient(MONGO_URI)
-                db = db_client.link_database
-                collection = db.links
-                await send_telegram_message(chat_id, "DEBUG: Step 7: Database connected. Updating records...")
-                
-                collection.update_one(
-                    {'title': {'$regex': f'^{re.escape(search_query)}$', '$options': 'i'}},
-                    {'$addToSet': {'links': {'$each': found_links}}, '$setOnInsert': {'title': search_query}},
-                    upsert=True
-                )
-                db_client.close()
-                await send_telegram_message(chat_id, "DEBUG: Step 8: Database update complete.")
-
-                await send_telegram_message(chat_id, f"✅ Success! Found and added {len(found_links)} new link(s) for '{search_query}'. Your website is updated.")
-
-    except Exception as e:
-        # This will catch ANY error and send it to you on Telegram
-        error_details = traceback.format_exc()
-        await send_telegram_message(chat_id, f"❌ A fatal error occurred!\n\nDetails:\n{error_details}")
-
+                        if urls: found_links.extend(urls)
+            if not found_links:
+                await send_telegram_message(chat_id, f"🤷 No links found for '{search_query}'.")
+                return "OK", 200
+            links_collection.update_one({'title': {'$regex': f'^{re.escape(search_query)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': found_links}},'$setOnInsert': {'title': search_query}},upsert=True)
+            await send_telegram_message(chat_id, f"✅ Success! Found and added {len(found_links)} link(s) for '{search_query}'.")
+        except Exception as e:
+            await send_telegram_message(chat_id, f"❌ An error occurred during scraping: {e}")
     return "OK", 200
+
+async def send_telegram_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload)
 
 @app.route('/')
 def index():
-    return "Bot backend is running in HYPER-DEBUG MODE.", 200
+    return "Bot backend is running!", 200
