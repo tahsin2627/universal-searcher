@@ -1,4 +1,4 @@
 telethon
 pymongo[srv]
 python-dotenv
-asyncio
+httpx
