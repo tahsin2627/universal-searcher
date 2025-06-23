@@ -3,4 +3,4 @@ pymongo
 python-dotenv
 httpx
 gunicorn
-flask
+flask[async]
