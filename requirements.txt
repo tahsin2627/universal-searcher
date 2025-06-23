@@ -1,4 +1,5 @@
 telethon
-pymongo[srv]
+pymongo
 python-dotenv
 httpx
+gunicorn
