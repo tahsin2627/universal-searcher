@@ -1,4 +1,4 @@
-# File: bot.py (FINAL, PRODUCTION, IMPROVED SEARCH)
+# File: bot.py (VERSION WITH /getall DEBUG ROUTE)
 
 import os
 import json
@@ -23,27 +23,51 @@ TARGET_CHANNEL_USERNAME = 'https://t.me/+IXXBlPCAiww5NDU1'
 app = Flask(__name__)
 CORS(app)
 
-# --- API ROUTE FOR THE WEBSITE (IMPROVED) ---
+# --- HELPER FUNCTION FOR DATABASE WRITES ---
+def update_database(title, links):
+    client = MongoClient(MONGO_URI)
+    db = client.link_database
+    collection = db.links
+    collection.update_one(
+        {'title': {'$regex': f'^{re.escape(title)}$', '$options': 'i'}},
+        {
+            '$addToSet': {'links': {'$each': links}},
+            '$setOnInsert': {'title': title}
+        },
+        upsert=True
+    )
+    client.close()
+
+# --- NEW DEBUG ROUTE TO SEE ALL DATA ---
+@app.route('/getall')
+def get_all_data():
+    try:
+        client = MongoClient(MONGO_URI)
+        db = client.link_database
+        collection = db.links
+        # Find all documents, limit to 20, and exclude the _id field
+        all_data = list(collection.find({}, {'_id': 0}).limit(20))
+        client.close()
+        return jsonify(all_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# --- API ROUTE FOR THE WEBSITE ---
 @app.route('/search')
 def search_api():
     query = request.args.get('q', '')
     if not query:
         return jsonify({"error": "Query parameter 'q' is required."}), 400
     
-    # --- START OF THE FIX ---
-    # 1. Create a fresh, reliable database connection for this search.
     client = MongoClient(MONGO_URI)
     db = client.link_database
     collection = db.links
-    
-    # 2. Make the search "fuzzy" - it will find any title that CONTAINS your search query.
+    # "Fuzzy" search to find any title that CONTAINS the query text
     result = collection.find_one(
         {'title': {'$regex': re.escape(query), '$options': 'i'}},
         {'_id': 0} 
     )
-    
     client.close()
-    # --- END OF THE FIX ---
     
     if result:
         return jsonify(result)
@@ -53,7 +77,6 @@ def search_api():
 # --- WEBHOOK ROUTE FOR THE BOT ---
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    # This entire section is already working perfectly and needs no changes.
     body = request.get_json()
     message = body.get('message', {})
     chat_id = message.get('chat', {}).get('id')
@@ -67,8 +90,7 @@ async def webhook():
             links = [link.strip() for link in links_str.split(',')]
             title = title.strip()
             if not title or not links: raise ValueError("Invalid format")
-            client = MongoClient(MONGO_URI); db = client.link_database; collection = db.links
-            collection.update_one({'title': {'$regex': f'^{re.escape(title)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': links}},'$setOnInsert': {'title': title}},upsert=True); client.close()
+            update_database(title, links)
             await send_telegram_message(chat_id, f"✅ Success! Added {len(links)} link(s) for '{title}'.")
         except Exception:
             await send_telegram_message(chat_id, f"❌ Error: Invalid format. Use: /add Title | Link1, Link2")
@@ -89,19 +111,11 @@ async def webhook():
             if not found_links:
                 await send_telegram_message(chat_id, f"🤷 No links found for '{search_query}'.")
                 return "OK", 200
-            client = MongoClient(MONGO_URI); db = client.link_database; collection = db.links
-            collection.update_one({'title': {'$regex': f'^{re.escape(search_query)}$', '$options': 'i'}},{'$addToSet': {'links': {'$each': found_links}},'$setOnInsert': {'title': search_query}},upsert=True); client.close()
+            update_database(search_query, found_links)
             await send_telegram_message(chat_id, f"✅ Success! Found and added {len(found_links)} new link(s) for '{search_query}'.")
         except Exception as e:
             await send_telegram_message(chat_id, f"❌ An error occurred during scraping: {e}")
     return "OK", 200
 
 async def send_telegram_message(chat_id, text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload)
-
-@app.route('/')
-def index():
-    return "Bot backend is running!", 200
+    url = f"https://api.
