@@ -20,6 +20,6 @@ services:
         sync: false
 
   # The Frontend Static Site
-  - type: static
+  - type: static_site # <--- This is the corrected line
     name: universal-searcher-frontend
     publishDirectory: "."
