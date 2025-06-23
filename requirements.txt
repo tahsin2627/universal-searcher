@@ -4,3 +4,4 @@ python-dotenv
 httpx
 gunicorn
 flask[async]
+Flask-Cors
